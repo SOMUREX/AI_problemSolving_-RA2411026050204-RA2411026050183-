@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sudoku CSP Solver</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #faf7f2;
+    --surface: #ffffff;
+    --border: #e8e0d5;
+    --border-dark: #c8bfb2;
+    --text: #1a1510;
+    --muted: #9a8f82;
+    --accent: #c0392b;
+    --accent2: #2c7a4b;
+    --accent3: #1a5276;
+    --given: #1a1510;
+    --user-ink: #2471a3;
+    --error-bg: #fdf2f2;
+    --error-col: #c0392b;
+    --highlight: #fef9e7;
+    --box-border: #1a1510;
+    --success: #1e8449;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+  }
+
+  .header {
+    text-align: center;
+    margin-bottom: 28px;
+  }
+
+  h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: clamp(2rem, 5vw, 3rem);
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .tagline {
+    font-size: 0.72rem;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .layout {
+    display: flex;
+    gap: 28px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 860px;
+    width: 100%;
+  }
+
+  /* ── GRID ── */
+  .grid-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .sudoku-grid {
+    display: grid;
+    grid-template-columns: repeat(9, 1fr);
+    border: 3px solid var(--box-border);
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--box-border);
+    gap: 1px;
+    width: min(450px, 96vw);
+    height: min(450px, 96vw);
+  }
+
+  .cell {
+    background: var(--surface);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(1rem, 2.5vw, 1.4rem);
+    font-family: 'DM Mono', monospace;
+    font-weight: 500;
+    cursor: pointer;
+    position: relative;
+    transition: background 0.1s;
+    aspect-ratio: 1;
+  }
+
+  /* Thick 3x3 borders */
+  .cell:nth-child(3n) { border-right: 2px solid var(--box-border); }
+  .cell:nth-child(9n) { border-right: none; }
+  .cell:nth-child(n+19):nth-child(-n+27),
+  .cell:nth-child(n+46):nth-child(-n+54) {
+    border-bottom: 2px solid var(--box-border);
+  }
+
+  .cell.given { color: var(--given); font-weight: 500; cursor: default; }
+  .cell.user-filled { color: var(--user-ink); }
+  .cell.selected { background: #e8f4fd; }
+  .cell.same-num { background: #dbeafe; }
+  .cell.error { background: var(--error-bg); color: var(--error-col); }
+  .cell.solved-reveal {
+    animation: fadeIn 0.4s ease forwards;
+    color: var(--accent2);
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: scale(0.8); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  .cell.highlight-box { background: #f5f5f0; }
+  .cell.win-glow {
+    animation: winPulse 0.6s ease-in-out;
+  }
+  @keyframes winPulse {
+    0%, 100% { background: var(--surface); }
+    50% { background: #d5f5e3; }
+  }
+
+  /* ── RIGHT PANEL ── */
+  .side-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 200px;
+    max-width: 240px;
+    flex: 1;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+
+  .card-title {
+    font-family: 'DM Serif Display', serif;
+    font-size: 0.95rem;
+    margin-bottom: 12px;
+    color: var(--text);
+  }
+
+  .numpad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+
+  .numpad button {
+    padding: 12px 0;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--bg);
+    font-family: 'DM Mono', monospace;
+    font-size: 1.1rem;
+    color: var(--user-ink);
+    cursor: pointer;
+    transition: all 0.15s;
+    font-weight: 500;
+  }
+
+  .numpad button:hover { background: #dbeafe; border-color: var(--accent3); }
+  .numpad button.erase { color: var(--error-col); grid-column: span 3; font-size: 0.78rem; letter-spacing: 0.1em; }
+
+  .action-btn {
+    width: 100%;
+    padding: 11px;
+    border: none;
+    border-radius: 8px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+
+  .btn-solve {
+    background: var(--accent3);
+    color: white;
+  }
+  .btn-solve:hover { background: #154360; }
+
+  .btn-check {
+    background: var(--accent2);
+    color: white;
+  }
+  .btn-check:hover { background: #1a6e3e; }
+
+  .btn-reset {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+  .btn-reset:hover { background: #fdf2f2; }
+
+  .btn-new {
+    background: var(--text);
+    color: var(--bg);
+  }
+  .btn-new:hover { background: #3d3026; }
+
+  .status-msg {
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    display: none;
+  }
+
+  .status-msg.show { display: block; }
+  .status-msg.success { background: #d5f5e3; color: #145a32; border: 1px solid #abebc6; }
+  .status-msg.error { background: #fdf2f2; color: #922b21; border: 1px solid #f1948a; }
+  .status-msg.info { background: #eaf4fb; color: #154360; border: 1px solid #aed6f1; }
+
+  .stats-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .stat {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7rem;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat .k { color: var(--muted); }
+  .stat .v { font-weight: 500; color: var(--text); }
+
+  .difficulty-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .diff-btn {
+    flex: 1;
+    padding: 7px 5px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.05em;
+  }
+
+  .diff-btn:hover { border-color: var(--accent3); color: var(--accent3); }
+  .diff-btn.active { background: var(--accent3); color: white; border-color: var(--accent3); }
+
+  @media (max-width: 600px) {
+    .side-panel { max-width: 100%; width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Sudoku</h1>
+  <p class="tagline">Constraint Satisfaction Problem Solver</p>
+</div>
+
+<div class="layout">
+  <div class="grid-wrapper">
+    <div class="sudoku-grid" id="grid"></div>
+    <div class="status-msg" id="status-msg"></div>
+  </div>
+
+  <div class="side-panel">
+    <div class="card">
+      <div class="card-title">New Puzzle</div>
+      <div class="difficulty-row">
+        <button class="diff-btn active" id="d-easy" onclick="newPuzzle('easy')">Easy</button>
+        <button class="diff-btn" id="d-medium" onclick="newPuzzle('medium')">Medium</button>
+        <button class="diff-btn" id="d-hard" onclick="newPuzzle('hard')">Hard</button>
+      </div>
+      <button class="action-btn btn-new" style="margin-top:10px" onclick="newPuzzle(currentDiff)">Generate Puzzle</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Input Number</div>
+      <div class="numpad" id="numpad">
+        <button onclick="inputNum(1)">1</button>
+        <button onclick="inputNum(2)">2</button>
+        <button onclick="inputNum(3)">3</button>
+        <button onclick="inputNum(4)">4</button>
+        <button onclick="inputNum(5)">5</button>
+        <button onclick="inputNum(6)">6</button>
+        <button onclick="inputNum(7)">7</button>
+        <button onclick="inputNum(8)">8</button>
+        <button onclick="inputNum(9)">9</button>
+        <button class="erase" onclick="inputNum(0)">✕ ERASE</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Actions</div>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <button class="action-btn btn-check" onclick="checkSolution()">✓ Check My Solution</button>
+        <button class="action-btn btn-solve" onclick="solvePuzzle()">⚙ Solve with CSP</button>
+        <button class="action-btn btn-reset" onclick="resetPuzzle()">⟳ Reset</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">CSP Stats</div>
+      <div class="stats-row">
+        <div class="stat"><span class="k">Calls made</span><span class="v" id="st-calls">—</span></div>
+        <div class="stat"><span class="k">Backtracks</span><span class="v" id="st-bt">—</span></div>
+        <div class="stat"><span class="k">Time (ms)</span><span class="v" id="st-time">—</span></div>
+        <div class="stat"><span class="k">Cells filled</span><span class="v" id="st-filled">—</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── Puzzles ──────────────────────────────────────────────────────────────────
+const PUZZLES = {
+  easy: [
+    [5,3,0, 0,7,0, 0,0,0],
+    [6,0,0, 1,9,5, 0,0,0],
+    [0,9,8, 0,0,0, 0,6,0],
+    [8,0,0, 0,6,0, 0,0,3],
+    [4,0,0, 8,0,3, 0,0,1],
+    [7,0,0, 0,2,0, 0,0,6],
+    [0,6,0, 0,0,0, 2,8,0],
+    [0,0,0, 4,1,9, 0,0,5],
+    [0,0,0, 0,8,0, 0,7,9]
+  ],
+  medium: [
+    [0,2,0, 0,0,0, 0,0,0],
+    [0,0,0, 6,0,0, 0,0,3],
+    [0,7,4, 0,8,0, 0,0,0],
+    [0,0,0, 0,0,3, 0,0,2],
+    [0,8,0, 0,4,0, 0,1,0],
+    [6,0,0, 5,0,0, 0,0,0],
+    [0,0,0, 0,1,0, 7,8,0],
+    [5,0,0, 0,0,9, 0,0,0],
+    [0,0,0, 0,0,0, 0,4,0]
+  ],
+  hard: [
+    [8,0,0, 0,0,0, 0,0,0],
+    [0,0,3, 6,0,0, 0,0,0],
+    [0,7,0, 0,9,0, 2,0,0],
+    [0,5,0, 0,0,7, 0,0,0],
+    [0,0,0, 0,4,5, 7,0,0],
+    [0,0,0, 1,0,0, 0,3,0],
+    [0,0,1, 0,0,0, 0,6,8],
+    [0,0,8, 5,0,0, 0,1,0],
+    [0,9,0, 0,0,0, 4,0,0]
+  ]
+};
+
+// ─── State ────────────────────────────────────────────────────────────────────
+let puzzle = [];
+let given = [];
+let userGrid = [];
+let selectedCell = null;
+let currentDiff = 'easy';
+let cspCalls = 0, cspBt = 0;
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+function initGrid() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  for (let i = 0; i < 81; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    cell.id = 'cell-' + i;
+    cell.addEventListener('click', () => selectCell(i));
+    grid.appendChild(cell);
+  }
+}
+
+function loadPuzzle(p) {
+  puzzle = p.map(r => [...r]);
+  given = p.map(r => [...r]);
+  userGrid = p.map(r => [...r]);
+  renderGrid();
+  hideStatus();
+  resetStats();
+}
+
+function newPuzzle(diff) {
+  currentDiff = diff;
+  ['easy','medium','hard'].forEach(d => {
+    document.getElementById('d-' + d).classList.toggle('active', d === diff);
+  });
+  const base = PUZZLES[diff];
+  // Shuffle by rotating/reflecting randomly
+  let p = base.map(r => [...r]);
+  const rot = Math.floor(Math.random() * 4);
+  for (let r = 0; r < rot; r++) p = rotatePuzzle(p);
+  if (Math.random() > 0.5) p = p.map(r => [...r].reverse());
+  loadPuzzle(p);
+  selectedCell = null;
+}
+
+function rotatePuzzle(p) {
+  return p[0].map((_, c) => p.map(r => r[c]).reverse());
+}
+
+function renderGrid(animateCells = []) {
+  for (let r = 0; r < 9; r++) {
+    for (let c = 0; c < 9; c++) {
+      const idx = r * 9 + c;
+      const cell = document.getElementById('cell-' + idx);
+      const val = userGrid[r][c];
+      cell.textContent = val || '';
+      cell.className = 'cell';
+      if (given[r][c]) cell.classList.add('given');
+      else if (val) {
+        if (animateCells.includes(idx)) cell.classList.add('solved-reveal');
+        else cell.classList.add('user-filled');
+      }
+    }
+  }
+  if (selectedCell !== null) highlightSelected(selectedCell);
+  updateFilledCount();
+}
+
+function selectCell(idx) {
+  selectedCell = idx;
+  const r = Math.floor(idx / 9), c = idx % 9;
+  const val = userGrid[r][c];
+
+  for (let i = 0; i < 81; i++) {
+    const cell = document.getElementById('cell-' + i);
+    cell.classList.remove('selected', 'highlight-box', 'same-num', 'error');
+    if (given[r][c]) continue;
+
+    const cr = Math.floor(i / 9), cc = i % 9;
+    if (i === idx) { cell.classList.add('selected'); continue; }
+    if (cr === r || cc === c) { cell.classList.add('highlight-box'); continue; }
+    const br = Math.floor(r/3), bc = Math.floor(c/3);
+    if (Math.floor(cr/3) === br && Math.floor(cc/3) === bc) { cell.classList.add('highlight-box'); continue; }
+    if (val && userGrid[cr][cc] === val) cell.classList.add('same-num');
+  }
+}
+
+function inputNum(n) {
+  if (selectedCell === null) return;
+  const r = Math.floor(selectedCell / 9), c = selectedCell % 9;
+  if (given[r][c]) return;
+  userGrid[r][c] = n || 0;
+  renderGrid();
+  selectCell(selectedCell);
+  hideStatus();
+}
+
+document.addEventListener('keydown', e => {
+  if (selectedCell === null) return;
+  if (e.key >= '1' && e.key <= '9') inputNum(+e.key);
+  if (e.key === 'Backspace' || e.key === 'Delete' || e.key === '0') inputNum(0);
+  const r = Math.floor(selectedCell / 9), c = selectedCell % 9;
+  if (e.key === 'ArrowRight') selectCell(r * 9 + Math.min(c + 1, 8));
+  if (e.key === 'ArrowLeft')  selectCell(r * 9 + Math.max(c - 1, 0));
+  if (e.key === 'ArrowDown')  selectCell(Math.min(r + 1, 8) * 9 + c);
+  if (e.key === 'ArrowUp')    selectCell(Math.max(r - 1, 0) * 9 + c);
+});
+
+// ─── CSP Solver ──────────────────────────────────────────────────────────────
+function isValid(grid, row, col, num) {
+  // Row check
+  if (grid[row].includes(num)) return false;
+  // Col check
+  for (let r = 0; r < 9; r++) if (grid[r][col] === num) return false;
+  // Box check
+  const br = Math.floor(row/3)*3, bc = Math.floor(col/3)*3;
+  for (let r = br; r < br+3; r++)
+    for (let c = bc; c < bc+3; c++)
+      if (grid[r][c] === num) return false;
+  return true;
+}
+
+function getPossibleValues(grid, row, col) {
+  const possible = [];
+  for (let n = 1; n <= 9; n++)
+    if (isValid(grid, row, col, n)) possible.push(n);
+  return possible;
+}
+
+// MRV heuristic: find the unassigned cell with fewest legal values
+function selectUnassigned(grid) {
+  let bestRow = -1, bestCol = -1, bestCount = 10;
+  for (let r = 0; r < 9; r++) {
+    for (let c = 0; c < 9; c++) {
+      if (grid[r][c] === 0) {
+        const count = getPossibleValues(grid, r, c).length;
+        if (count < bestCount) {
+          bestCount = count;
+          bestRow = r; bestCol = c;
+        }
+      }
+    }
+  }
+  return [bestRow, bestCol];
+}
+
+function cspSolve(grid) {
+  cspCalls++;
+  const [row, col] = selectUnassigned(grid);
+  if (row === -1) return true; // solved
+
+  const values = getPossibleValues(grid, row, col);
+  for (const val of values) {
+    grid[row][col] = val;
+    if (cspSolve(grid)) return true;
+    grid[row][col] = 0;
+    cspBt++;
+  }
+  return false;
+}
+
+function solvePuzzle() {
+  cspCalls = 0; cspBt = 0;
+  const t0 = performance.now();
+  const solutionGrid = userGrid.map(r => [...r]);
+  const solved = cspSolve(solutionGrid);
+  const elapsed = +(performance.now() - t0).toFixed(2);
+
+  const animCells = [];
+  if (solved) {
+    for (let r = 0; r < 9; r++)
+      for (let c = 0; c < 9; c++)
+        if (!given[r][c] && userGrid[r][c] === 0) {
+          animCells.push(r * 9 + c);
+        }
+    userGrid = solutionGrid;
+    renderGrid(animCells);
+
+    document.getElementById('st-calls').textContent = cspCalls.toLocaleString();
+    document.getElementById('st-bt').textContent = cspBt.toLocaleString();
+    document.getElementById('st-time').textContent = elapsed + 'ms';
+
+    showStatus('✓ Solved using CSP with MRV heuristic! ' + cspCalls + ' recursive calls, ' + cspBt + ' backtracks.', 'success');
+  } else {
+    showStatus('No solution exists for this puzzle.', 'error');
+  }
+}
+
+function checkSolution() {
+  // Check completeness
+  for (let r = 0; r < 9; r++)
+    for (let c = 0; c < 9; c++)
+      if (userGrid[r][c] === 0) {
+        showStatus('Puzzle incomplete — fill all cells first.', 'info');
+        return;
+      }
+
+  // Check validity
+  let valid = true;
+  const errorCells = [];
+  for (let r = 0; r < 9; r++) {
+    for (let c = 0; c < 9; c++) {
+      const val = userGrid[r][c];
+      // Temporarily remove this cell to check
+      const temp = userGrid[r][c]; userGrid[r][c] = 0;
+      if (!isValid(userGrid, r, c, val)) { valid = false; errorCells.push(r * 9 + c); }
+      userGrid[r][c] = temp;
+    }
+  }
+
+  renderGrid();
+  errorCells.forEach(idx => document.getElementById('cell-' + idx).classList.add('error'));
+
+  if (valid) {
+    showStatus('🎉 You Won! Perfect solution!', 'success');
+    for (let i = 0; i < 81; i++) document.getElementById('cell-' + i).classList.add('win-glow');
+  } else {
+    showStatus(`✗ ${errorCells.length} error(s) found — highlighted in red. Try again!`, 'error');
+  }
+}
+
+function resetPuzzle() {
+  userGrid = given.map(r => [...r]);
+  selectedCell = null;
+  renderGrid();
+  hideStatus();
+  resetStats();
+}
+
+function showStatus(msg, type) {
+  const el = document.getElementById('status-msg');
+  el.textContent = msg;
+  el.className = 'status-msg show ' + type;
+}
+
+function hideStatus() {
+  document.getElementById('status-msg').className = 'status-msg';
+}
+
+function resetStats() {
+  ['st-calls','st-bt','st-time','st-filled'].forEach(id => {
+    document.getElementById(id).textContent = '—';
+  });
+}
+
+function updateFilledCount() {
+  let filled = 0;
+  for (let r = 0; r < 9; r++)
+    for (let c = 0; c < 9; c++)
+      if (userGrid[r][c] !== 0) filled++;
+  document.getElementById('st-filled').textContent = filled + ' / 81';
+}
+
+// ─── Start ────────────────────────────────────────────────────────────────────
+initGrid();
+newPuzzle('easy');
+</script>
+</body>
+</html>
