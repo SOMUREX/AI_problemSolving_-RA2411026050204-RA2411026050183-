@@ -6,7 +6,7 @@
 # 1. tic tac toe
 # 2. sudoku csp solver
 
-## algorithms used :
+## ALGORITHMS USED:
 -tic tac toe:
 -1. Minimax Algorithm
 
